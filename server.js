@@ -1,8 +1,19 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { Client, MessageMedia } = require('whatsapp-web.js');
-const path = require('path');
 const fs = require('fs');
 
+// Configuração do Express
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middlewares
+app.use(bodyParser.json());
+app.use(express.static('public'));
+
+// Inicialização do cliente WhatsApp
 const client = new Client();
 let carrinhos = {}; // { "5511999999999": {itens: [], estado: "...", ultimoEnvioPdf: timestamp, atendenteTimer: null} }
 
@@ -23,13 +34,14 @@ const cardapio = {
     ]
 };
 
-const PDF_PATH = '/home/engeve/Documentos/botdelivery/cardapio.pdf';
+// Caminho relativo para o PDF (dentro da pasta public)
+const PDF_PATH = path.join(__dirname, 'public', 'cardapio.pdf');
 
+// Funções auxiliares (mantidas como antes)
 function formatarTroco(troco) {
     if (troco.toLowerCase() === 'não' || troco.toLowerCase() === 'nao') {
         return 'não';
     }
-    // Extrai números e formata como R$ XX,XX
     const numeros = troco.replace(/[^\d,.]/g, '').replace('.', ',');
     const partes = numeros.split(',');
     let inteiro = partes[0] || '0';
@@ -45,24 +57,17 @@ function gerarCupomFiscal(itens, endereco, formaPagamento = null, troco = null) 
     
     let cupom = `SMASH BURGER - Pedido em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}\n\n`;
 
-    // Itens
     cupom += "ITENS:\n";
     itens.forEach(item => {
         cupom += `${item.id}. ${item.nome} - R$ ${item.preco.toFixed(2).replace('.', ',')}\n`;
     });
 
-    // Totais
     cupom += `\nSubtotal: R$ ${subtotal.toFixed(2).replace('.', ',')}`;
     cupom += `\nTaxa de Entrega (10%): R$ ${taxaEntrega.toFixed(2).replace('.', ',')}`;
     cupom += `\nTOTAL: R$ ${total.toFixed(2).replace('.', ',')}\n`;
-
-    // Endereço
     cupom += `\nENDEREÇO:\n${endereco}\n`;
-
-    // Pagamento
     cupom += `\nFORMA DE PAGAMENTO:\n${formaPagamento}\n`;
 
-    // Troco (se dinheiro)
     if (formaPagamento === "1. Dinheiro 💵" && troco) {
         cupom += `\nTroco para: ${formatarTroco(troco)}`;
     }
@@ -103,6 +108,7 @@ function mostrarOpcoes() {
            "🔢 Digite o número da opção:";
 }
 
+// Eventos do WhatsApp
 client.on('qr', qr => qrcode.generate(qr, {small: true}));
 client.on('ready', () => console.log('🤖 Bot pronto e operacional!'));
 
@@ -316,3 +322,44 @@ async function confirmarPedido(sender) {
 }
 
 client.initialize();
+
+// Rota da API para o chat web (frontend)
+app.post('/api/chat', (req, res) => {
+    try {
+        const userMessage = req.body.message;
+        const botResponse = responder(userMessage);
+        res.json({ response: botResponse });
+    } catch (error) {
+        console.error('Erro no chatbot:', error);
+        res.status(500).json({ error: 'Erro interno no servidor' });
+    }
+});
+
+// Função de resposta para o chat web
+function responder(mensagem) {
+    // Lógica simplificada para demonstração web
+    const lowerMsg = mensagem.toLowerCase();
+    
+    const respostas = {
+        'oi': 'Olá! Bem-vindo ao Smash Burger! Como posso ajudar?',
+        'ola': 'Olá! Pronto para fazer seu pedido?',
+        'cardapio': 'Confira nosso cardápio completo: /cardapio',
+        'pedido': 'Para fazer um pedido, acesse nosso WhatsApp',
+        'horario': 'Funcionamos das 18h às 23h todos os dias!',
+        'endereço': 'Estamos na Rua dos Hamburgers, 123 - Centro',
+        'default': 'Desculpe, não entendi. Para atendimento completo, chame no WhatsApp!'
+    };
+
+    return respostas[lowerMsg] || respostas['default'];
+}
+
+// Rota para servir o frontend
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Iniciar servidor
+app.listen(PORT, () => {
+    console.log(`🤖 Bot WhatsApp e servidor web rodando na porta ${PORT}`);
+    console.log(`🌐 Acesse: http://localhost:${PORT}`);
+});
